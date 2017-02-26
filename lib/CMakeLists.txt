@@ -2,6 +2,7 @@ cmake_minimum_required (VERSION 2.8)
 project (pyscf)
 
 set(CMAKE_BUILD_TYPE RELWITHDEBINFO)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffast-math")
 set(CMAKE_VERBOSE_MAKEFILE OFF)
 if (CMAKE_COMPILER_IS_GNUCC) # Does it skip the link flag on old OsX?
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ffast-math")
@@ -64,7 +65,7 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/include/cint.h")
     PREFIX ${PROJECT_BINARY_DIR}/deps
     INSTALL_DIR ${PROJECT_SOURCE_DIR}/deps
     CMAKE_ARGS -DWITH_RANGE_COULOMB=1 -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-            -DCMAKE_INSTALL_LIBDIR:PATH=lib -DBLA_VENDOR=${BLA_VENDOR}
+    -DCMAKE_INSTALL_LIBDIR:PATH=lib -DBLA_VENDOR=${BLA_VENDOR} -DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS} -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
   )
 endif()
 endif(ENABLE_LIBCINT)
@@ -102,7 +103,7 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/include/xc.h" AND ENABLE_LIBXC)
     PREFIX ${PROJECT_BINARY_DIR}/deps
     INSTALL_DIR ${PROJECT_SOURCE_DIR}/deps
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib
-          --enable-shared --disable-fortran LIBS=-lm
+    --enable-shared --disable-fortran LIBS=-lm CFLAGS=${CMAKE_C_FLAGS} CXXFLAGS=${CMAKE_CXX_FLAGS}
   )
 endif()
 if(NOT DISABLE_DFT)
@@ -116,6 +117,8 @@ if(NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/include/xcfun.h" AND ENABLE_XCFUN)
             -DXC_MAX_ORDER=3 -DXCFUN_ENABLE_TESTS=0
             -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             -DCMAKE_INSTALL_LIBDIR:PATH=lib
+            -DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS}
+            -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
   )
 endif()
 endif()

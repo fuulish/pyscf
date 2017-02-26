@@ -125,7 +125,7 @@ Keyword argument "init_dm" is replaced by "dm0"''')
     scf_conv = False
     cycle = 0
     cput1 = logger.timer(mf, 'initialize scf', *cput0)
-    while not scf_conv and cycle < max(1, mf.max_cycle):
+    while not scf_conv and cycle < max(0, mf.max_cycle):
         dm_last = dm
         last_hf_e = e_tot
 
