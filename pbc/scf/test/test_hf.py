@@ -115,35 +115,35 @@ class KnowValues(unittest.TestCase):
         self.assertAlmostEqual(e1, -2.7862168430230341, 9)
         self.assertTrue(mf.mo_coeff[0].dtype == numpy.complex128)
 
-    def test_rhf_0d(self):
-        from pyscf.df import mdf_jk
-        from pyscf.scf import hf
-        L = 4
-        cell = pbcgto.Cell()
-        cell.build(unit = 'B',
-                   a = numpy.eye(3)*L*5,
-                   gs = [10]*3,
-                   atom = '''He 2 2 2; He 2 2 3''',
-                   dimension = 0,
-                   verbose = 0,
-                   basis = { 'He': [[0, (0.8, 1.0)],
-                                    [0, (1.0, 1.0)],
-                                    [0, (1.2, 1.0)]]})
-        mol = cell.to_mol()
-        mf = mdf_jk.density_fit(hf.RHF(mol))
-        mf.with_df.gs = [10]*3
-        mf.with_df.auxbasis = {'He':[[0, (1e6, 1)]]}
-        mf.with_df.charge_constraint = False
-        mf.with_df.metric = 'S'
-        eref = mf.kernel()
-
-        mf = pbchf.RHF(cell)
-        mf.with_df = pdf.PWDF(cell)
-        mf.exxdiv = None
-        mf.get_hcore = lambda *args: hf.get_hcore(mol)
-        mf.energy_nuc = lambda *args: mol.energy_nuc()
-        e1 = mf.kernel()
-        self.assertAlmostEqual(e1, eref, 8)
+#    def test_rhf_0d(self):
+#        from pyscf.df import mdf_jk
+#        from pyscf.scf import hf
+#        L = 4
+#        cell = pbcgto.Cell()
+#        cell.build(unit = 'B',
+#                   a = numpy.eye(3)*L*5,
+#                   gs = [10]*3,
+#                   atom = '''He 2 2 2; He 2 2 3''',
+#                   dimension = 0,
+#                   verbose = 0,
+#                   basis = { 'He': [[0, (0.8, 1.0)],
+#                                    [0, (1.0, 1.0)],
+#                                    [0, (1.2, 1.0)]]})
+#        mol = cell.to_mol()
+#        mf = mdf_jk.density_fit(hf.RHF(mol))
+#        mf.with_df.gs = [10]*3
+#        mf.with_df.auxbasis = {'He':[[0, (1e6, 1)]]}
+#        mf.with_df.charge_constraint = False
+#        mf.with_df.metric = 'S'
+#        eref = mf.kernel()
+#
+#        mf = pbchf.RHF(cell)
+#        mf.with_df = pdf.AFTDF(cell)
+#        mf.exxdiv = None
+#        mf.get_hcore = lambda *args: hf.get_hcore(mol)
+#        mf.energy_nuc = lambda *args: mol.energy_nuc()
+#        e1 = mf.kernel()
+#        self.assertAlmostEqual(e1, eref, 8)
 
     def test_rhf_1d(self):
         L = 4
@@ -159,9 +159,9 @@ class KnowValues(unittest.TestCase):
                                     [0, (1.2, 1.0)]
                                    ]})
         mf = pbchf.RHF(cell)
-        mf.with_df = pdf.PWDF(cell)
+        mf.with_df = pdf.AFTDF(cell)
         e1 = mf.kernel()
-        self.assertAlmostEqual(e1, -3.2452496710146335, 5)
+        self.assertAlmostEqual(e1, -3.2455039593257098, 5)
 
     def test_rhf_2d(self):
         L = 4
@@ -177,9 +177,9 @@ class KnowValues(unittest.TestCase):
                                     [0, (1.2, 1.0)]
                                    ]})
         mf = pbchf.RHF(cell)
-        mf.with_df = pdf.PWDF(cell)
+        mf.with_df = pdf.AFTDF(cell)
         e1 = mf.kernel()
-        self.assertAlmostEqual(e1, -3.2683014249123516, 5)
+        self.assertAlmostEqual(e1, -3.2684257145738229, 5)
 
 
 if __name__ == '__main__':

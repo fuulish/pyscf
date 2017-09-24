@@ -8,6 +8,7 @@
 import sys
 import json
 import ctypes
+import warnings
 import numpy as np
 import scipy.linalg
 import scipy.optimize
@@ -23,6 +24,10 @@ from pyscf.pbc.gto import basis
 from pyscf.pbc.gto import pseudo
 from pyscf.pbc.tools import pbc as pbctools
 from pyscf.gto.basis import ALIAS as MOLE_ALIAS
+
+# For code compatiblity in python-2 and python-3
+if sys.version_info >= (3,):
+    unicode = str
 
 libpbc = lib.load_library('libpbc')
 
@@ -76,8 +81,8 @@ def format_pseudo(pseudo_tab):
         stdsymb = _std_symbol(rawsymb)
         symb = symb.replace(rawsymb, stdsymb)
 
-        if isinstance(pseudo_tab[atom], str):
-            fmt_pseudo[symb] = pseudo.load(pseudo_tab[atom], stdsymb)
+        if isinstance(pseudo_tab[atom], (str, unicode)):
+            fmt_pseudo[symb] = pseudo.load(str(pseudo_tab[atom]), stdsymb)
         else:
             fmt_pseudo[symb] = pseudo_tab[atom]
     return fmt_pseudo
@@ -114,8 +119,8 @@ def format_basis(basis_tab):
     fmt_basis = {}
     for atom in basis_tab.keys():
         atom_basis = basis_tab[atom]
-        if isinstance(atom_basis, str) and 'gth' in atom_basis:
-            fmt_basis[atom] = basis.load(atom_basis, _std_symbol(atom))
+        if isinstance(atom_basis, (str, unicode)) and 'gth' in atom_basis:
+            fmt_basis[atom] = basis.load(str(atom_basis), _std_symbol(atom))
         else:
             fmt_basis[atom] = atom_basis
     return mole.format_basis(fmt_basis)
@@ -172,12 +177,11 @@ def dumps(cell):
     try:
         return json.dumps(celldic)
     except TypeError:
-        import warnings
         def skip_value(dic):
             dic1 = {}
             for k,v in dic.items():
                 if (v is None or
-                    isinstance(v, (basestring, bool, int, long, float))):
+                    isinstance(v, (str, unicode, bool, int, long, float))):
                     dic1[k] = v
                 elif isinstance(v, (list, tuple)):
                     dic1[k] = v   # Should I recursively skip_vaule?
@@ -334,13 +338,9 @@ def get_nimgs(cell, precision=None):
     return nimgs
 
 def _estimate_rcut(alpha, l, cc, r0, precision=1e-8):
-    rcut = []
-    for a, c in zip(alpha, cc):
-        if np.isclose(c, 0.0):
-            rcut.append(0)
-        else:
-            rcut.append(np.sqrt(abs(2*np.log(c*(r0**2*a)**l/precision)) / a))
-    return np.array(rcut)
+    tmp = 2*np.log((cc+1e-200)*(r0**2*alpha)**l/precision)
+    rcut = np.sqrt(max(0, tmp.max())/alpha)
+    return rcut
 
 def bas_rcut(cell, bas_id, precision=1e-8):
     r'''Estimate the largest distance between the function and its image to
@@ -376,7 +376,11 @@ def get_bounding_sphere(cell, rcut):
     #cut = np.array([n1, n2, n3]).astype(int)
     b = cell.reciprocal_vectors(norm_to=1)
     heights_inv = lib.norm(b, axis=1)
-    return np.ceil(rcut*heights_inv).astype(int)
+    nimgs = np.ceil(rcut*heights_inv).astype(int)
+
+    for i in range(cell.dimension, 3):
+        nimgs[i] = 1
+    return nimgs
 
 def get_Gv(cell, gs=None):
     '''Calculate three-dimensional G-vectors for the cell; see MH (3.8).
@@ -424,7 +428,6 @@ def get_Gv_weights(cell, gs=None):
     rx = np.append(np.arange(gs[0]+1.), np.arange(-gs[0],0.))
     ry = np.append(np.arange(gs[1]+1.), np.arange(-gs[1],0.))
     rz = np.append(np.arange(gs[2]+1.), np.arange(-gs[2],0.))
-    weights = np.linalg.det(b)
 
     ngs = [i*2+1 for i in gs]
     if cell.dimension == 0:
@@ -448,6 +451,8 @@ def get_Gv_weights(cell, gs=None):
         rz, wz = plus_minus(gs[2])
         rz /= np.linalg.norm(b[2])
         weights = np.einsum('i,k->ik', wxy, wz).reshape(-1)
+    else:
+        weights = abs(np.linalg.det(b))
     Gvbase = (rx, ry, rz)
     Gv = np.dot(lib.cartesian_prod(Gvbase), b)
     # 1/cell.vol == det(b)/(2pi)^3
@@ -478,10 +483,9 @@ def get_ewald_params(cell, precision=1e-8, gs=None):
 
     Choice is based on largest G vector and desired relative precision.
 
-    The relative error in the G-space sum is given by (keeping only
-    exponential factors)
+    The relative error in the G-space sum is given by
 
-        precision ~ e^{(-Gmax^2)/(4 \eta^2)}
+        precision ~ 4\pi Gmax^2 e^{(-Gmax^2)/(4 \eta^2)}
 
     which determines eta. Then, real-space cutoff is determined by (exp.
     factors only)
@@ -497,15 +501,15 @@ def get_ewald_params(cell, precision=1e-8, gs=None):
 
     if cell.dimension == 3:
         Gmax = min(np.asarray(cell.gs) * lib.norm(cell.reciprocal_vectors(), axis=1))
-        log_precision = np.log(precision*.1)
+        log_precision = np.log(precision/(4*np.pi*Gmax**2))
         ew_eta = np.sqrt(-Gmax**2/(4*log_precision))
-        ew_cut = np.sqrt(-log_precision)/ew_eta
+        ew_cut = _estimate_rcut(ew_eta**2, 0, 1., 20, precision)
     else:
 # Non-uniform PW grids are used for low-dimensional ewald summation.  The cutoff
 # estimation for long range part based on exp(G^2/(4*eta^2)) does not work for
 # non-uniform grids.  Smooth model density is preferred.
         ew_cut = cell.rcut
-        ew_eta = np.sqrt(max(np.log(ew_cut**2/precision)/ew_cut**2, .1))
+        ew_eta = np.sqrt(max(np.log(4*np.pi*ew_cut**2/precision)/ew_cut**2, .1))
     return ew_eta, ew_cut
 
 def ewald(cell, ew_eta=None, ew_cut=None):
@@ -633,17 +637,17 @@ def gen_uniform_grids(cell, gs=None):
 # definition in ecp, and versa vise.
 def classify_ecp_pseudo(cell, ecp, pp):
     def convert(name):
-        return name.lower().replace(' ', '').replace('-', '').replace('_', '')
+        return str(name.lower().replace(' ', '').replace('-', '').replace('_', ''))
     def classify(ecp, pp_alias):
-        if isinstance(ecp, str):
+        if isinstance(ecp, (str, unicode)):
             if convert(ecp) in pp_alias:
-                return {}, ecp
+                return {}, str(ecp)
         elif isinstance(ecp, dict):
             ecp_as_pp = {}
             for atom in ecp:
                 key = ecp[atom]
-                if isinstance(key, str) and convert(key) in pp_alias:
-                    ecp_as_pp[atom] = key
+                if isinstance(key, (str, unicode)) and convert(key) in pp_alias:
+                    ecp_as_pp[atom] = str(key)
             if ecp_as_pp:
                 ecp_left = dict(ecp)
                 for atom in ecp_as_pp:
@@ -656,7 +660,7 @@ def classify_ecp_pseudo(cell, ecp, pp):
     # ecp = ecp_left + pp_as_ecp
     # pp = pp_left + ecp_as_pp
     ecp = ecp_left
-    if pp_as_ecp and not isinstance(ecp_left, str):
+    if pp_as_ecp and not isinstance(ecp_left, (str, unicode)):
         # If ecp is a str, all atoms have ecp definition.  The misplaced ecp has no effects.
         logger.info(cell, 'PBC pseudo-potentials keywords for %s found in .ecp',
                     pp_as_ecp.keys())
@@ -664,7 +668,7 @@ def classify_ecp_pseudo(cell, ecp, pp):
             pp_as_ecp.update(ecp_left)
         ecp = pp_as_ecp
     pp = pp_left
-    if ecp_as_pp and not isinstance(pp_left, str):
+    if ecp_as_pp and not isinstance(pp_left, (str, unicode)):
         logger.info(cell, 'ECP keywords for %s found in PBC .pseudo',
                     ecp_as_pp.keys())
         if pp_left:
@@ -774,11 +778,11 @@ class Cell(mole.Mole):
 
         self.ecp, self.pseudo = classify_ecp_pseudo(self, self.ecp, self.pseudo)
         if self.pseudo is not None:
-            if isinstance(self.pseudo, str):
+            if isinstance(self.pseudo, (str, unicode)):
                 # specify global pseudo for whole molecule
                 _atom = self.format_atom(self.atom, unit=self.unit)
                 uniq_atoms = set([a[0] for a in _atom])
-                self._pseudo = self.format_pseudo(dict([(a, self.pseudo)
+                self._pseudo = self.format_pseudo(dict([(a, str(self.pseudo))
                                                       for a in uniq_atoms]))
             else:
                 self._pseudo = self.format_pseudo(self.pseudo)
@@ -792,6 +796,10 @@ class Cell(mole.Mole):
                              for ib in range(self.nbas)])
 
         _a = self.lattice_vectors()
+        if np.linalg.det(_a) < 0 and self.dimension == 3:
+            sys.stderr.write('''WARNING!
+  Lattice are not in right-handed coordinate system. This can cause wrong value for some integrals.
+  It's recommended to resort the lattice vectors to\na = %s\n\n''' % _a[[0,2,1]])
         if self.gs is None:
             assert(self.ke_cutoff is not None)
             self.gs = pbctools.cutoff_to_gs(_a, self.ke_cutoff)
@@ -825,7 +833,7 @@ class Cell(mole.Mole):
     def h(self, x):
         sys.stderr.write('cell.h is deprecated.  It is replaced by the '
                          '(row-based) lattice vectors cell.a:  cell.a = cell.h.T\n')
-        if isinstance(x, str):
+        if isinstance(x, (str, unicode)):
             x = x.replace(';',' ').replace(',',' ').replace('\n',' ')
             self.a = np.asarray([float(z) for z in x.split()]).reshape(3,3).T
         else:
@@ -837,7 +845,7 @@ class Cell(mole.Mole):
 
     @property
     def vol(self):
-        return np.linalg.det(self.lattice_vectors())
+        return abs(np.linalg.det(self.lattice_vectors()))
 
     @property
     def Gv(self):
@@ -858,7 +866,19 @@ class Cell(mole.Mole):
     def nimgs(self, x):
         b = self.reciprocal_vectors(norm_to=1)
         heights_inv = lib.norm(b, axis=1)
-        self.rcut = max((np.asarray(x)+1) / heights_inv)
+        self.rcut = max(np.asarray(x) / heights_inv)
+
+        if self.nbas == 0:
+            rcut_guess = _estimate_rcut(.05, 0, 1, 20, 1e-8)
+        else:
+            rcut_guess = max([self.bas_rcut(ib, self.precision)
+                              for ib in range(self.nbas)])
+        if self.rcut > rcut_guess*1.5:
+            msg = ('.nimgs is a deprecated attribute.  It is replaced by .rcut '
+                   'attribute for lattic sum cutoff radius.  The given nimgs '
+                   '%s is far over the estimated cutoff radius %s. ' %
+                   (x, rcut_guess))
+            warnings.warn(msg)
 
     def make_ecp_env(self, _atm, _ecp, pre_env=[]):
         if _ecp and self._pseudo:
@@ -877,12 +897,12 @@ class Cell(mole.Mole):
         return _atm, _ecpbas, _env
 
     def lattice_vectors(self):
-        if isinstance(self.a, str):
+        if isinstance(self.a, (str, unicode)):
             a = self.a.replace(';',' ').replace(',',' ').replace('\n',' ')
             a = np.asarray([float(x) for x in a.split()]).reshape(3,3)
         else:
             a = np.asarray(self.a, dtype=np.double)
-        if isinstance(self.unit, str):
+        if isinstance(self.unit, (str, unicode)):
             if self.unit.startswith(('B','b','au','AU')):
                 return a
             else:

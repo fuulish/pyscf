@@ -30,7 +30,7 @@ class AsFCISolver(object):
         e_corr, t1, t2 = self.mycc.kernel(eris=self.eris)
         l1, l2 = self.mycc.solve_lambda(t1, t2, eris=self.eris)
         e = fake_hf.e_tot + e_corr
-        return e, [t1,t2,l1,l2]
+        return e+ecore, [t1,t2,l1,l2]
 
     def make_rdm1(self, fake_ci, norb, nelec):
         mo = self.mycc.mo_coeff
@@ -45,11 +45,10 @@ class AsFCISolver(object):
         dm2 = self.mycc.make_rdm2(t1, t2, l1, l2)
         dm2 = numpy.dot(mo, dm2.reshape(nmo,-1))
         dm2 = numpy.dot(dm2.reshape(-1,nmo), mo.T)
-        dm2 = dm2.reshape([nmo]*4).transpose(1,0,3,2)
+        dm2 = dm2.reshape([nmo]*4).transpose(2,3,0,1)
         dm2 = numpy.dot(mo, dm2.reshape(nmo,-1))
         dm2 = numpy.dot(dm2.reshape(-1,nmo), mo.T)
-        # convert physicist's notation to chemist's notation
-        dm2 = dm2.reshape([nmo]*4).transpose(0,2,1,3)
+        dm2 = dm2.reshape([nmo]*4)
         return self.make_rdm1(fake_ci, norb, nelec), dm2
 
     def spin_square(self, fake_ci, norb, nelec):
