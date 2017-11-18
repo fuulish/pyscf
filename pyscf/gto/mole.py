@@ -88,6 +88,7 @@ def cart2sph(l):
     elif l == 1:
         return cmat * 0.488602511902919921
     else:
+        assert(l <= 12)
         nd = l * 2 + 1
         c2sph = numpy.zeros((nf,nd), order='F')
         fn = moleintor.libcgto.CINTc2s_ket_sph
@@ -111,6 +112,7 @@ def cart2j_kappa(kappa, l=None, normalized=None):
         nd = l * 2
     else:
         assert(l is not None)
+        assert(l <= 12)
         nd = l * 4 + 2
     nf = (l+1)*(l+2)//2
     c2smat = numpy.zeros((nf*2,nd), order='F', dtype=numpy.complex)
@@ -752,6 +754,7 @@ def pack(mol):
             'cart'    : mol.cart,
             'nucmod'  : mol.nucmod,
             'ecp'     : mol.ecp,
+            '_nelectron': mol._nelectron,
             'verbose' : mol.verbose}
     if mol.symmetry and not isinstance(mol.symmetry, str):
         mdic['symmetry'] = mol.groupname
@@ -1173,11 +1176,11 @@ def search_ao_label(mol, label):
     Examples:
 
     >>> mol = gto.M(atom='H 0 0 0; Cl 0 0 1', basis='ccpvtz')
-    >>> mol.parse_aolabel('Cl.*p')
+    >>> mol.search_ao_label('Cl.*p')
     [19 20 21 22 23 24 25 26 27 28 29 30]
-    >>> mol.parse_aolabel('Cl 2p')
+    >>> mol.search_ao_label('Cl 2p')
     [19 20 21]
-    >>> mol.parse_aolabel(['Cl.*d', 'Cl 4p'])
+    >>> mol.search_ao_label(['Cl.*d', 'Cl 4p'])
     [25 26 27 31 32 33 34 35 36 37 38 39 40]
     '''
     return _aolabels2baslst(mol, label)
@@ -1519,8 +1522,11 @@ class Mole(lib.StreamObject):
 
         stdout : file object
             Default is sys.stdout if :attr:`Mole.output` is not set
+        topgroup : str
+            Point group of the system.
         groupname : str
-            One of D2h, C2h, C2v, D2, Cs, Ci, C2, C1
+            The supported subgroup of the point group. It can be one of Dooh,
+            Coov, D2h, C2h, C2v, D2, Cs, Ci, C2, C1
         nelectron : int
             sum of nuclear charges - :attr:`Mole.charge`
         symm_orb : a list of numpy.ndarray
@@ -1899,13 +1905,16 @@ Note when symmetry attributes is assigned, the molecule needs to be put in the p
         self.stdout.write('numpy %s  scipy %s\n' %
                           (numpy.__version__, scipy.__version__))
         self.stdout.write('Date: %s\n' % time.ctime())
+        import pyscf
+        pyscfdir = os.path.abspath(os.path.join(__file__, '..', '..'))
+        self.stdout.write('PySCF version %s\n' % pyscf.__version__)
+        self.stdout.write('PySCF path  %s\n' % pyscfdir)
         try:
-            import pyscf
-            pyscfdir = os.path.abspath(os.path.join(__file__, '..', '..'))
-            self.stdout.write('PySCF version %s\n' % pyscf.__version__)
-            self.stdout.write('PySCF path  %s\n' % pyscfdir)
-            with open(os.path.join(pyscfdir, '..', '.git', 'ORIG_HEAD')) as f:
+            with open(os.path.join(pyscfdir, '..', '.git', 'ORIG_HEAD'), 'r') as f:
                 self.stdout.write('GIT ORIG_HEAD %s' % f.read())
+        except IOError:
+            pass
+        try:
             head = os.path.join(pyscfdir, '..', '.git', 'HEAD')
             with open(head, 'r') as f:
                 head = f.read().splitlines()[0]
@@ -1915,13 +1924,13 @@ Note when symmetry attributes is assigned, the molecule needs to be put in the p
                 branch = os.path.basename(head)
                 head = os.path.join(pyscfdir, '..', '.git', head.split(' ')[1])
                 with open(head, 'r') as f:
-                    self.stdout.write('GIT %s branch  %s' % (branch, f.readline()))
-            for key in os.environ:
-                if 'PYSCF' in key:
-                    self.stdout.write('%s %s\n' % (key, os.environ[key]))
-            self.stdout.write('\n')
+                    self.stdout.write('GIT %s branch  %s' % (branch, f.read()))
         except IOError:
             pass
+        for key in os.environ:
+            if 'PYSCF' in key:
+                self.stdout.write('%s %s\n' % (key, os.environ[key]))
+        self.stdout.write('\n')
 
         self.stdout.write('[INPUT] VERBOSE %d\n' % self.verbose)
         self.stdout.write('[INPUT] num atoms = %d\n' % self.natm)
